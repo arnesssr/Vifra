@@ -9,7 +9,6 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/username/vps-monitor/internal/models"
-	"github.com/username/vps-monitor/internal/validation"
 )
 
 // handleGetNotificationChannels returns a list of notification channels
