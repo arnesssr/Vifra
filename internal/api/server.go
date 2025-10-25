@@ -11,6 +11,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/username/vps-monitor/internal/alerting"
 	"github.com/username/vps-monitor/internal/audit"
 	"github.com/username/vps-monitor/internal/config"
 	"github.com/username/vps-monitor/internal/crypto"
@@ -23,14 +24,15 @@ import (
 
 // Server represents the HTTP server
 type Server struct {
-	config *config.Config
-	db     *database.DB
-	router *mux.Router
-	httpServer *http.Server
-	rateLimiter *ratelimit.RateLimiter
-	auditLogger *audit.Logger
-	encryptor *crypto.Encryptor
-	errorHandler *errors.ErrorHandler
+	config        *config.Config
+	db            *database.DB
+	router        *mux.Router
+	httpServer    *http.Server
+	rateLimiter   *ratelimit.RateLimiter
+	auditLogger   *audit.Logger
+	encryptor     *crypto.Encryptor
+	errorHandler  *errors.ErrorHandler
+	alertEvaluator *alerting.AlertEvaluator
 }
 
 // NewServer creates a new Server instance
@@ -58,14 +60,18 @@ func NewServer(cfg *config.Config, db *database.DB) *Server {
 	// Initialize error handler (set debug to false in production)
 	errorHandler := errors.NewErrorHandler(false)
 	
+	// Initialize alert evaluator
+	alertEvaluator := alerting.NewAlertEvaluator(db)
+	
 	server := &Server{
-		config: cfg,
-		db:     db,
-		router: router,
-		rateLimiter: rateLimiter,
-		auditLogger: auditLogger,
-		encryptor: encryptor,
-		errorHandler: errorHandler,
+		config:         cfg,
+		db:             db,
+		router:         router,
+		rateLimiter:    rateLimiter,
+		auditLogger:    auditLogger,
+		encryptor:      encryptor,
+		errorHandler:   errorHandler,
+		alertEvaluator: alertEvaluator,
 	}
 	
 	server.setupRoutes()
@@ -116,6 +122,13 @@ func (s *Server) setupRoutes() {
 	protected.HandleFunc("/alerts/{id}", s.handleGetAlert).Methods("GET")
 	protected.HandleFunc("/alerts/{id}", s.handleUpdateAlert).Methods("PUT")
 	protected.HandleFunc("/alerts/{id}", s.handleDeleteAlert).Methods("DELETE")
+	
+	// Notification channel routes
+	protected.HandleFunc("/notification-channels", s.handleGetNotificationChannels).Methods("GET")
+	protected.HandleFunc("/notification-channels", s.handleCreateNotificationChannel).Methods("POST")
+	protected.HandleFunc("/notification-channels/{id}", s.handleGetNotificationChannel).Methods("GET")
+	protected.HandleFunc("/notification-channels/{id}", s.handleUpdateNotificationChannel).Methods("PUT")
+	protected.HandleFunc("/notification-channels/{id}", s.handleDeleteNotificationChannel).Methods("DELETE")
 	
 	// Health check
 	s.router.HandleFunc("/health", s.handleHealthCheck).Methods("GET")
@@ -343,4 +356,35 @@ func (s *Server) getAlertRuleByID(id int) (*models.AlertRule, error) {
 		return nil, result.Error
 	}
 	return &alertRule, nil
+}
+
+// Helper functions for notification channel operations
+func (s *Server) getNotificationChannels() ([]models.NotificationChannel, error) {
+	var channels []models.NotificationChannel
+	result := s.db.Find(&channels)
+	return channels, result.Error
+}
+
+func (s *Server) getNotificationChannelByID(id int) (*models.NotificationChannel, error) {
+	var channel models.NotificationChannel
+	result := s.db.First(&channel, id)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return &channel, nil
+}
+
+func (s *Server) createNotificationChannel(channel *models.NotificationChannel) error {
+	result := s.db.Create(channel)
+	return result.Error
+}
+
+func (s *Server) updateNotificationChannel(channel *models.NotificationChannel) error {
+	result := s.db.Save(channel)
+	return result.Error
+}
+
+func (s *Server) deleteNotificationChannel(id int) error {
+	result := s.db.Delete(&models.NotificationChannel{}, id)
+	return result.Error
 }

@@ -291,6 +291,12 @@ func (s *Server) handlePostMetrics(w http.ResponseWriter, r *http.Request) {
 	
 	log.Printf("Metrics saved successfully for server ID %d", metrics.ServerID)
 	
+	// Evaluate alert rules for the submitted metrics
+	if err := s.alertEvaluator.EvaluateMetrics(&metrics); err != nil {
+		// Log the error but don't fail the request
+		log.Printf("Failed to evaluate alert rules for server ID %d: %v", metrics.ServerID, err)
+	}
+	
 	// Audit log successful metrics submission
 	s.auditLogger.LogAction(
 		0, // No user ID for agent requests

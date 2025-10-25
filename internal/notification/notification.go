@@ -21,10 +21,11 @@ const (
 
 // NotificationChannel represents a notification channel configuration
 type NotificationChannel struct {
-	ID     int         `json:"id"`
-	Name   string      `json:"name"`
-	Type   ChannelType `json:"type"`
-	Config string      `json:"config"` // JSON configuration
+	ID      int         `json:"id"`
+	Name    string      `json:"name"`
+	Type    ChannelType `json:"type"`
+	Config  string      `json:"config"` // JSON configuration
+	Enabled bool        `json:"enabled"`
 }
 
 // EmailConfig represents email notification configuration
