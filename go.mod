@@ -9,8 +9,8 @@ replace github.com/username/vps-monitor => ./
 require (
 	github.com/golang-jwt/jwt/v4 v4.5.2
 	github.com/gorilla/mux v1.8.1
-	golang.org/x/crypto v0.43.0
-	gorm.io/driver/postgres v1.6.0
+	golang.org/x/crypto v0.28.0
+	gorm.io/driver/postgres v1.5.11
 	gorm.io/gorm v1.31.0
 )
 
