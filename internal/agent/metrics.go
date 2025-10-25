@@ -135,7 +135,11 @@ func collectDiskUsage(path string) (uint64, uint64, error) {
 	}
 
 	// Calculate disk usage in bytes
-	blockSize := uint64(stat.Bsize)
+	// Safely convert Bsize to uint64, checking for negative values
+	if stat.Bsize < 0 {
+		return 0, 0, fmt.Errorf("invalid block size: %d", stat.Bsize)
+	}
+	blockSize := uint64(stat.Bsize) // #nosec G115 - checked for negative above
 	total := blockSize * stat.Blocks
 	free := blockSize * stat.Bfree
 	used := total - free
