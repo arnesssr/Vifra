@@ -2,10 +2,13 @@ package api
 
 import (
 	"context"
+	"fmt"
+	"log"
 	"net/http"
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/username/vps-monitor/internal/config"
 	"github.com/username/vps-monitor/internal/database"
 	"github.com/username/vps-monitor/internal/models"
@@ -39,30 +42,34 @@ func (s *Server) setupRoutes() {
 	// API v1 routes
 	api := s.router.PathPrefix("/api/v1").Subrouter()
 	
-	// Auth routes
+	// Public routes
 	api.HandleFunc("/auth/login", s.handleLogin).Methods("POST")
 	api.HandleFunc("/auth/logout", s.handleLogout).Methods("POST")
 	
+	// Protected routes - require authentication
+	protected := api.PathPrefix("").Subrouter()
+	protected.Use(s.JWTMiddleware)
+	
 	// Server routes
-	api.HandleFunc("/servers", s.handleGetServers).Methods("GET")
-	api.HandleFunc("/servers", s.handleCreateServer).Methods("POST")
-	api.HandleFunc("/servers/{id}", s.handleGetServer).Methods("GET")
-	api.HandleFunc("/servers/{id}", s.handleUpdateServer).Methods("PUT")
-	api.HandleFunc("/servers/{id}", s.handleDeleteServer).Methods("DELETE")
+	protected.HandleFunc("/servers", s.handleGetServers).Methods("GET")
+	protected.HandleFunc("/servers", s.handleCreateServer).Methods("POST")
+	protected.HandleFunc("/servers/{id}", s.handleGetServer).Methods("GET")
+	protected.HandleFunc("/servers/{id}", s.handleUpdateServer).Methods("PUT")
+	protected.HandleFunc("/servers/{id}", s.handleDeleteServer).Methods("DELETE")
 	
 	// Metrics routes
-	api.HandleFunc("/servers/{id}/metrics", s.handleGetMetrics).Methods("GET")
-	api.HandleFunc("/servers/{id}/metrics/history", s.handleGetMetricsHistory).Methods("GET")
+	protected.HandleFunc("/servers/{id}/metrics", s.handleGetMetrics).Methods("GET")
+	protected.HandleFunc("/servers/{id}/metrics/history", s.handleGetMetricsHistory).Methods("GET")
 	
-	// Agent endpoint for metrics submission
+	// Agent endpoint for metrics submission (might be public or have different auth)
 	api.HandleFunc("/metrics", s.handlePostMetrics).Methods("POST")
 	
 	// Alert routes
-	api.HandleFunc("/alerts", s.handleGetAlerts).Methods("GET")
-	api.HandleFunc("/alerts", s.handleCreateAlert).Methods("POST")
-	api.HandleFunc("/alerts/{id}", s.handleGetAlert).Methods("GET")
-	api.HandleFunc("/alerts/{id}", s.handleUpdateAlert).Methods("PUT")
-	api.HandleFunc("/alerts/{id}", s.handleDeleteAlert).Methods("DELETE")
+	protected.HandleFunc("/alerts", s.handleGetAlerts).Methods("GET")
+	protected.HandleFunc("/alerts", s.handleCreateAlert).Methods("POST")
+	protected.HandleFunc("/alerts/{id}", s.handleGetAlert).Methods("GET")
+	protected.HandleFunc("/alerts/{id}", s.handleUpdateAlert).Methods("PUT")
+	protected.HandleFunc("/alerts/{id}", s.handleDeleteAlert).Methods("DELETE")
 	
 	// Health check
 	s.router.HandleFunc("/health", s.handleHealthCheck).Methods("GET")
@@ -84,6 +91,60 @@ func (s *Server) Start() error {
 // Stop gracefully shuts down the server
 func (s *Server) Stop(ctx context.Context) error {
 	return s.httpServer.Shutdown(ctx)
+}
+
+// JWTMiddleware validates JWT tokens
+func (s *Server) JWTMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Get token from Authorization header
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			log.Printf("Authentication failed: Authorization header missing for %s %s", r.Method, r.URL.Path)
+			http.Error(w, "Authorization header required", http.StatusUnauthorized)
+			return
+		}
+
+		// Check if header has Bearer prefix
+		if len(authHeader) < 7 || authHeader[:7] != "Bearer " {
+			log.Printf("Authentication failed: Invalid authorization header format for %s %s", r.Method, r.URL.Path)
+			http.Error(w, "Invalid authorization header format", http.StatusUnauthorized)
+			return
+		}
+
+		// Extract token
+		tokenString := authHeader[7:]
+
+		// Parse and validate token
+		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+			// Validate signing method
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
+			return []byte(s.config.JWTSecret), nil
+		})
+
+		if err != nil {
+			log.Printf("Authentication failed: Error parsing token for %s %s: %v", r.Method, r.URL.Path, err)
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
+
+		if !token.Valid {
+			log.Printf("Authentication failed: Invalid token for %s %s", r.Method, r.URL.Path)
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
+
+		// Add user claims to request context
+		if claims, ok := token.Claims.(jwt.MapClaims); ok {
+			ctx := context.WithValue(r.Context(), "user", claims)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		} else {
+			log.Printf("Authentication failed: Invalid token claims for %s %s", r.Method, r.URL.Path)
+			http.Error(w, "Invalid token claims", http.StatusUnauthorized)
+			return
+		}
+	})
 }
 
 // Helper functions for database operations
@@ -167,4 +228,14 @@ func (s *Server) updateAlert(alert *models.Alert) error {
 func (s *Server) deleteAlert(id int) error {
 	result := s.db.Delete(&models.Alert{}, id)
 	return result.Error
+}
+
+// Helper functions for alert rule operations
+func (s *Server) getAlertRuleByID(id int) (*models.AlertRule, error) {
+	var alertRule models.AlertRule
+	result := s.db.First(&alertRule, id)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return &alertRule, nil
 }
