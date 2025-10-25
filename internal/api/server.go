@@ -90,6 +90,7 @@ func (s *Server) setupRoutes() {
 	// Public routes
 	api.HandleFunc("/auth/login", s.handleLogin).Methods("POST")
 	api.HandleFunc("/auth/logout", s.handleLogout).Methods("POST")
+	api.HandleFunc("/auth/refresh", s.handleRefresh).Methods("POST")
 	
 	// Protected routes - require authentication
 	protected := api.PathPrefix("").Subrouter()

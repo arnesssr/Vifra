@@ -58,6 +58,17 @@ type Alert struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+// NotificationChannel represents a channel for sending alert notifications
+type NotificationChannel struct {
+	ID          int       `json:"id" gorm:"primaryKey"`
+	Name        string    `json:"name" gorm:"not null"`
+	Type        string    `json:"type" gorm:"not null"` // email, webhook, slack, etc.
+	Config      string    `json:"config" gorm:"type:text"` // JSON configuration for the channel
+	Enabled     bool      `json:"enabled" gorm:"default:true"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
 // User represents a system user
 type User struct {
 	ID        int       `json:"id" gorm:"primaryKey"`

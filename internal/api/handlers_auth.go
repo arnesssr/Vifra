@@ -158,3 +158,66 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(response)
 }
+
+// handleRefresh handles JWT token refresh
+func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
+	// Get user ID from context (requires authentication)
+	userID := s.getUserIDFromContext(r)
+	if userID == 0 {
+		s.errorHandler.HandleUnauthorized(w, r, fmt.Errorf("authentication required"), "Authentication required")
+		return
+	}
+	
+	// Get user role from context
+	var userRole string
+	if user, ok := r.Context().Value("user").(jwt.MapClaims); ok {
+		if role, ok := user["role"].(string); ok {
+			userRole = role
+		}
+	}
+	
+	// Generate new JWT token
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id": userID,
+		"role":    userRole,
+	})
+	
+	tokenString, err := token.SignedString([]byte(s.config.JWTSecret))
+	if err != nil {
+		// Audit log failed token refresh attempt
+		s.auditLogger.LogAction(
+			userID,
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"refresh_token",
+			"auth",
+			0,
+			false,
+			"Failed to generate token: "+err.Error(),
+		)
+		
+		s.errorHandler.HandleInternalServerError(w, r, err, "Failed to generate token")
+		return
+	}
+	
+	// Audit log successful token refresh
+	s.auditLogger.LogAction(
+		userID,
+		s.getIPAddress(r),
+		r.Header.Get("User-Agent"),
+		"refresh_token",
+		"auth",
+		0,
+		true,
+		"Token refreshed successfully for user ID: "+fmt.Sprintf("%d", userID),
+	)
+	
+	// Return new token
+	response := map[string]string{
+		"token": tokenString,
+	}
+	
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}

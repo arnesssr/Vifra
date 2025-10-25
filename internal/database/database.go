@@ -29,6 +29,7 @@ func Migrate(db *DB) error {
 		&models.ServerMetrics{},
 		&models.AlertRule{},
 		&models.Alert{},
+		&models.NotificationChannel{},
 		&models.User{},
 	)
 	return err
