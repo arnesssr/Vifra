@@ -1,6 +1,10 @@
-# VPS Monitor - Universal VPS Monitoring Dashboard
-
-A comprehensive monitoring solution for VPS servers with real-time metrics, alerting, and multi-server management.
+<div align="center">
+  <img src="assets/vifra-logo.png" alt="Vifra - VPS Infrastructure Monitor" width="300" height="300">
+  
+  # Vifra - VPS Infrastructure Monitor
+  
+  A comprehensive monitoring solution for VPS servers with real-time metrics, alerting, and multi-server management.
+</div>
 
 ## Project Status
 

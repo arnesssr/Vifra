@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -32,6 +33,19 @@ func (s *Server) handleCreateAlert(w http.ResponseWriter, r *http.Request) {
 	
 	if err := json.NewDecoder(r.Body).Decode(&alert); err != nil {
 		log.Printf("Error decoding alert creation request: %v", err)
+		
+		// Audit log failed alert creation attempt
+		s.auditLogger.LogAction(
+			s.getUserIDFromContext(r),
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"create_alert",
+			"alerts",
+			0,
+			false,
+			"Invalid request body: "+err.Error(),
+		)
+		
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -40,6 +54,19 @@ func (s *Server) handleCreateAlert(w http.ResponseWriter, r *http.Request) {
 	validator := validation.AlertValidator{}
 	if err := validator.ValidateAlertData(alert.AlertRuleID, alert.ServerID, alert.Status); err != nil {
 		log.Printf("Alert validation failed: %v", err)
+		
+		// Audit log failed alert creation attempt
+		s.auditLogger.LogAction(
+			s.getUserIDFromContext(r),
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"create_alert",
+			"alerts",
+			0,
+			false,
+			"Validation failed: "+err.Error(),
+		)
+		
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -48,6 +75,19 @@ func (s *Server) handleCreateAlert(w http.ResponseWriter, r *http.Request) {
 	_, err := s.getAlertRuleByID(alert.AlertRuleID)
 	if err != nil {
 		log.Printf("Alert rule not found with ID %d: %v", alert.AlertRuleID, err)
+		
+		// Audit log failed alert creation attempt
+		s.auditLogger.LogAction(
+			s.getUserIDFromContext(r),
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"create_alert",
+			"alerts",
+			alert.AlertRuleID,
+			false,
+			"Alert rule not found: "+err.Error(),
+		)
+		
 		http.Error(w, "Alert rule not found", http.StatusNotFound)
 		return
 	}
@@ -56,6 +96,19 @@ func (s *Server) handleCreateAlert(w http.ResponseWriter, r *http.Request) {
 	_, err = s.getServerByID(alert.ServerID)
 	if err != nil {
 		log.Printf("Server not found with ID %d: %v", alert.ServerID, err)
+		
+		// Audit log failed alert creation attempt
+		s.auditLogger.LogAction(
+			s.getUserIDFromContext(r),
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"create_alert",
+			"alerts",
+			alert.ServerID,
+			false,
+			"Server not found: "+err.Error(),
+		)
+		
 		http.Error(w, "Server not found", http.StatusNotFound)
 		return
 	}
@@ -67,11 +120,37 @@ func (s *Server) handleCreateAlert(w http.ResponseWriter, r *http.Request) {
 	
 	if err := s.createAlert(&alert); err != nil {
 		log.Printf("Error creating alert: %v", err)
+		
+		// Audit log failed alert creation attempt
+		s.auditLogger.LogAction(
+			s.getUserIDFromContext(r),
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"create_alert",
+			"alerts",
+			alert.ID,
+			false,
+			"Database error: "+err.Error(),
+		)
+		
 		http.Error(w, "Failed to create alert", http.StatusInternalServerError)
 		return
 	}
 	
 	log.Printf("Alert created successfully: ID=%d, RuleID=%d, ServerID=%d", alert.ID, alert.AlertRuleID, alert.ServerID)
+	
+	// Audit log successful alert creation
+	s.auditLogger.LogAction(
+		s.getUserIDFromContext(r),
+		s.getIPAddress(r),
+		r.Header.Get("User-Agent"),
+		"create_alert",
+		"alerts",
+		alert.ID,
+		true,
+		"Alert created successfully",
+	)
+	
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(alert)
@@ -83,18 +162,81 @@ func (s *Server) handleGetAlert(w http.ResponseWriter, r *http.Request) {
 	alertID, err := strconv.Atoi(vars["id"])
 	if err != nil {
 		log.Printf("Invalid alert ID provided: %v", err)
-		http.Error(w, "Invalid alert ID", http.StatusBadRequest)
+		
+		// Audit log failed alert retrieval attempt
+		s.auditLogger.LogAction(
+			s.getUserIDFromContext(r),
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"get_alert",
+			"alerts",
+			0,
+			false,
+			"Invalid alert ID: "+err.Error(),
+		)
+		
+		s.errorHandler.HandleBadRequest(w, r, err, "Invalid alert ID")
 		return
 	}
 	
+	// Check if alert exists (this also prevents enumeration)
 	alert, err := s.getAlertByID(alertID)
 	if err != nil {
 		log.Printf("Alert not found with ID %d: %v", alertID, err)
-		http.Error(w, "Alert not found", http.StatusNotFound)
+		
+		// Audit log failed alert retrieval attempt
+		s.auditLogger.LogAction(
+			s.getUserIDFromContext(r),
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"get_alert",
+			"alerts",
+			alertID,
+			false,
+			"Alert not found: "+err.Error(),
+		)
+		
+		// Return a generic not found error to prevent enumeration
+		s.errorHandler.HandleNotFound(w, r, fmt.Errorf("alert not found"), "Alert not found")
+		return
+	}
+	
+	// Check if user has access to this alert's server to prevent enumeration
+	// For now, we'll just check that the server exists
+	if err := s.checkServerAccess(alert.ServerID); err != nil {
+		log.Printf("Access denied to alert ID %d for server ID %d: %v", alertID, alert.ServerID, err)
+		
+		// Audit log failed alert retrieval attempt
+		s.auditLogger.LogAction(
+			s.getUserIDFromContext(r),
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"get_alert",
+			"alerts",
+			alertID,
+			false,
+			"Access denied: "+err.Error(),
+		)
+		
+		// Return a generic not found error to prevent enumeration
+		s.errorHandler.HandleNotFound(w, r, fmt.Errorf("alert not found"), "Alert not found")
 		return
 	}
 	
 	log.Printf("Retrieved alert details: ID=%d, RuleID=%d, ServerID=%d", alert.ID, alert.AlertRuleID, alert.ServerID)
+	
+	// Audit log successful alert retrieval
+	s.auditLogger.LogAction(
+		s.getUserIDFromContext(r),
+		s.getIPAddress(r),
+		r.Header.Get("User-Agent"),
+		"get_alert",
+		"alerts",
+		alert.ID,
+		true,
+		"Alert details retrieved successfully",
+	)
+	
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(alert)
@@ -106,7 +248,20 @@ func (s *Server) handleUpdateAlert(w http.ResponseWriter, r *http.Request) {
 	alertID, err := strconv.Atoi(vars["id"])
 	if err != nil {
 		log.Printf("Invalid alert ID provided: %v", err)
-		http.Error(w, "Invalid alert ID", http.StatusBadRequest)
+		
+		// Audit log failed alert update attempt
+		s.auditLogger.LogAction(
+			s.getUserIDFromContext(r),
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"update_alert",
+			"alerts",
+			0,
+			false,
+			"Invalid alert ID: "+err.Error(),
+		)
+		
+		s.errorHandler.HandleBadRequest(w, r, err, "Invalid alert ID")
 		return
 	}
 	
@@ -114,7 +269,42 @@ func (s *Server) handleUpdateAlert(w http.ResponseWriter, r *http.Request) {
 	alert, err := s.getAlertByID(alertID)
 	if err != nil {
 		log.Printf("Alert not found with ID %d: %v", alertID, err)
-		http.Error(w, "Alert not found", http.StatusNotFound)
+		
+		// Audit log failed alert update attempt
+		s.auditLogger.LogAction(
+			s.getUserIDFromContext(r),
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"update_alert",
+			"alerts",
+			alertID,
+			false,
+			"Alert not found: "+err.Error(),
+		)
+		
+		// Return a generic not found error to prevent enumeration
+		s.errorHandler.HandleNotFound(w, r, fmt.Errorf("alert not found"), "Alert not found")
+		return
+	}
+	
+	// Check if user has access to this alert's server to prevent enumeration
+	if err := s.checkServerAccess(alert.ServerID); err != nil {
+		log.Printf("Access denied to alert ID %d for server ID %d: %v", alertID, alert.ServerID, err)
+		
+		// Audit log failed alert update attempt
+		s.auditLogger.LogAction(
+			s.getUserIDFromContext(r),
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"update_alert",
+			"alerts",
+			alertID,
+			false,
+			"Access denied: "+err.Error(),
+		)
+		
+		// Return a generic not found error to prevent enumeration
+		s.errorHandler.HandleNotFound(w, r, fmt.Errorf("alert not found"), "Alert not found")
 		return
 	}
 	
@@ -122,7 +312,20 @@ func (s *Server) handleUpdateAlert(w http.ResponseWriter, r *http.Request) {
 	var updatedAlert models.Alert
 	if err := json.NewDecoder(r.Body).Decode(&updatedAlert); err != nil {
 		log.Printf("Error decoding alert update request: %v", err)
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		
+		// Audit log failed alert update attempt
+		s.auditLogger.LogAction(
+			s.getUserIDFromContext(r),
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"update_alert",
+			"alerts",
+			alertID,
+			false,
+			"Invalid request body: "+err.Error(),
+		)
+		
+		s.errorHandler.HandleBadRequest(w, r, err, "Invalid request body")
 		return
 	}
 	
@@ -141,7 +344,20 @@ func (s *Server) handleUpdateAlert(w http.ResponseWriter, r *http.Request) {
 	validator := validation.AlertValidator{}
 	if err := validator.ValidateAlertData(tempAlert.AlertRuleID, tempAlert.ServerID, tempAlert.Status); err != nil {
 		log.Printf("Alert validation failed: %v", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		
+		// Audit log failed alert update attempt
+		s.auditLogger.LogAction(
+			s.getUserIDFromContext(r),
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"update_alert",
+			"alerts",
+			alertID,
+			false,
+			"Validation failed: "+err.Error(),
+		)
+		
+		s.errorHandler.HandleBadRequest(w, r, err, "Validation failed")
 		return
 	}
 	
@@ -164,11 +380,37 @@ func (s *Server) handleUpdateAlert(w http.ResponseWriter, r *http.Request) {
 	
 	if err := s.updateAlert(alert); err != nil {
 		log.Printf("Error updating alert with ID %d: %v", alertID, err)
-		http.Error(w, "Failed to update alert", http.StatusInternalServerError)
+		
+		// Audit log failed alert update attempt
+		s.auditLogger.LogAction(
+			s.getUserIDFromContext(r),
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"update_alert",
+			"alerts",
+			alertID,
+			false,
+			"Database error: "+err.Error(),
+		)
+		
+		s.errorHandler.HandleInternalServerError(w, r, err, "Failed to update alert")
 		return
 	}
 	
 	log.Printf("Alert updated successfully: ID=%d, RuleID=%d, ServerID=%d", alert.ID, alert.AlertRuleID, alert.ServerID)
+	
+	// Audit log successful alert update
+	s.auditLogger.LogAction(
+		s.getUserIDFromContext(r),
+		s.getIPAddress(r),
+		r.Header.Get("User-Agent"),
+		"update_alert",
+		"alerts",
+		alert.ID,
+		true,
+		"Alert updated successfully",
+	)
+	
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(alert)
@@ -180,25 +422,99 @@ func (s *Server) handleDeleteAlert(w http.ResponseWriter, r *http.Request) {
 	alertID, err := strconv.Atoi(vars["id"])
 	if err != nil {
 		log.Printf("Invalid alert ID provided: %v", err)
-		http.Error(w, "Invalid alert ID", http.StatusBadRequest)
+		
+		// Audit log failed alert deletion attempt
+		s.auditLogger.LogAction(
+			s.getUserIDFromContext(r),
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"delete_alert",
+			"alerts",
+			0,
+			false,
+			"Invalid alert ID: "+err.Error(),
+		)
+		
+		s.errorHandler.HandleBadRequest(w, r, err, "Invalid alert ID")
 		return
 	}
 	
-	// Check if alert exists before deleting
-	_, err = s.getAlertByID(alertID)
+	// Get existing alert to check access
+	alert, err := s.getAlertByID(alertID)
 	if err != nil {
 		log.Printf("Alert not found with ID %d: %v", alertID, err)
-		http.Error(w, "Alert not found", http.StatusNotFound)
+		
+		// Audit log failed alert deletion attempt
+		s.auditLogger.LogAction(
+			s.getUserIDFromContext(r),
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"delete_alert",
+			"alerts",
+			alertID,
+			false,
+			"Alert not found: "+err.Error(),
+		)
+		
+		// Return a generic not found error to prevent enumeration
+		s.errorHandler.HandleNotFound(w, r, fmt.Errorf("alert not found"), "Alert not found")
+		return
+	}
+	
+	// Check if user has access to this alert's server to prevent enumeration
+	if err := s.checkServerAccess(alert.ServerID); err != nil {
+		log.Printf("Access denied to alert ID %d for server ID %d: %v", alertID, alert.ServerID, err)
+		
+		// Audit log failed alert deletion attempt
+		s.auditLogger.LogAction(
+			s.getUserIDFromContext(r),
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"delete_alert",
+			"alerts",
+			alertID,
+			false,
+			"Access denied: "+err.Error(),
+		)
+		
+		// Return a generic not found error to prevent enumeration
+		s.errorHandler.HandleNotFound(w, r, fmt.Errorf("alert not found"), "Alert not found")
 		return
 	}
 	
 	if err := s.deleteAlert(alertID); err != nil {
 		log.Printf("Error deleting alert with ID %d: %v", alertID, err)
-		http.Error(w, "Failed to delete alert", http.StatusInternalServerError)
+		
+		// Audit log failed alert deletion attempt
+		s.auditLogger.LogAction(
+			s.getUserIDFromContext(r),
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"delete_alert",
+			"alerts",
+			alertID,
+			false,
+			"Database error: "+err.Error(),
+		)
+		
+		s.errorHandler.HandleInternalServerError(w, r, err, "Failed to delete alert")
 		return
 	}
 	
 	log.Printf("Alert deleted successfully: ID=%d", alertID)
+	
+	// Audit log successful alert deletion
+	s.auditLogger.LogAction(
+		s.getUserIDFromContext(r),
+		s.getIPAddress(r),
+		r.Header.Get("User-Agent"),
+		"delete_alert",
+		"alerts",
+		alertID,
+		true,
+		"Alert deleted successfully",
+	)
+	
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"message": "Alert deleted successfully"})

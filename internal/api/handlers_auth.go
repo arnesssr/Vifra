@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/username/vps-monitor/internal/models"
@@ -30,6 +31,18 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	if err := json.NewDecoder(r.Body).Decode(&credentials); err != nil {
+		// Audit log failed login attempt with invalid request
+		s.auditLogger.LogAction(
+			0,
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"login",
+			"auth",
+			0,
+			false,
+			"Invalid request body",
+		)
+		
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -38,12 +51,36 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var user models.User
 	result := s.db.Where("username = ?", credentials.Username).First(&user)
 	if result.Error != nil {
+		// Audit log failed login attempt with invalid credentials
+		s.auditLogger.LogAction(
+			0,
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"login",
+			"auth",
+			0,
+			false,
+			"Invalid credentials for username: "+credentials.Username,
+		)
+		
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}
 	
 	// Check password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(credentials.Password)); err != nil {
+		// Audit log failed login attempt with invalid password
+		s.auditLogger.LogAction(
+			user.ID,
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"login",
+			"auth",
+			0,
+			false,
+			"Invalid password for user ID: "+fmt.Sprintf("%d", user.ID),
+		)
+		
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}
@@ -56,9 +93,33 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	
 	tokenString, err := token.SignedString([]byte(s.config.JWTSecret))
 	if err != nil {
+		// Audit log failed login attempt with token generation error
+		s.auditLogger.LogAction(
+			user.ID,
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"login",
+			"auth",
+			0,
+			false,
+			"Failed to generate token for user ID: "+fmt.Sprintf("%d", user.ID),
+		)
+		
 		http.Error(w, "Failed to generate token", http.StatusInternalServerError)
 		return
 	}
+	
+	// Audit log successful login
+	s.auditLogger.LogAction(
+		user.ID,
+		s.getIPAddress(r),
+		r.Header.Get("User-Agent"),
+		"login",
+		"auth",
+		0,
+		true,
+		"Successful login for user ID: "+fmt.Sprintf("%d", user.ID),
+	)
 	
 	// Return token
 	response := map[string]string{
@@ -72,6 +133,21 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 // handleLogout handles user logout
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	// Get user ID from context
+	userID := s.getUserIDFromContext(r)
+	
+	// Audit log logout attempt
+	s.auditLogger.LogAction(
+		userID,
+		s.getIPAddress(r),
+		r.Header.Get("User-Agent"),
+		"logout",
+		"auth",
+		0,
+		true,
+		"User logout for user ID: "+fmt.Sprintf("%d", userID),
+	)
+	
 	// For stateless JWT, we simply return success
 	// Client should delete the token
 	response := map[string]string{

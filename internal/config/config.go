@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"os"
 )
 
@@ -9,6 +10,7 @@ type Config struct {
 	ServerAddress string
 	DatabaseURL   string
 	JWTSecret     string
+	EncryptionKey string
 }
 
 // Load loads configuration from environment variables
@@ -17,6 +19,7 @@ func Load() *Config {
 		ServerAddress: getEnv("SERVER_ADDRESS", ":8080"),
 		DatabaseURL:   getEnv("DATABASE_URL", "postgres://user:password@localhost/vpsmonitor?sslmode=disable"),
 		JWTSecret:     getEnv("JWT_SECRET", "your-secret-key"),
+		EncryptionKey: getEnv("ENCRYPTION_KEY", ""),
 	}
 }
 
@@ -26,4 +29,13 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+// GetEncryptionKey returns the encryption key as bytes
+func (c *Config) GetEncryptionKey() ([]byte, error) {
+	if c.EncryptionKey == "" {
+		return nil, nil // No encryption key configured
+	}
+	
+	return base64.StdEncoding.DecodeString(c.EncryptionKey)
 }

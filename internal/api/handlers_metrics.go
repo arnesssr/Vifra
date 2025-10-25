@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -18,7 +19,41 @@ func (s *Server) handleGetMetrics(w http.ResponseWriter, r *http.Request) {
 	serverID, err := strconv.Atoi(vars["id"])
 	if err != nil {
 		log.Printf("Invalid server ID provided: %v", err)
-		http.Error(w, "Invalid server ID", http.StatusBadRequest)
+		
+		// Audit log failed metrics retrieval attempt
+		s.auditLogger.LogAction(
+			s.getUserIDFromContext(r),
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"get_metrics",
+			"metrics",
+			0,
+			false,
+			"Invalid server ID: "+err.Error(),
+		)
+		
+		s.errorHandler.HandleBadRequest(w, r, err, "Invalid server ID")
+		return
+	}
+	
+	// Check if user has access to this server to prevent enumeration
+	if err := s.checkServerAccess(serverID); err != nil {
+		log.Printf("Access denied to server ID %d: %v", serverID, err)
+		
+		// Audit log failed metrics retrieval attempt
+		s.auditLogger.LogAction(
+			s.getUserIDFromContext(r),
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"get_metrics",
+			"metrics",
+			serverID,
+			false,
+			"Access denied: "+err.Error(),
+		)
+		
+		// Return a generic not found error to prevent enumeration
+		s.errorHandler.HandleNotFound(w, r, fmt.Errorf("server not found"), "Server not found")
 		return
 	}
 	
@@ -26,7 +61,20 @@ func (s *Server) handleGetMetrics(w http.ResponseWriter, r *http.Request) {
 	_, err = s.getServerByID(serverID)
 	if err != nil {
 		log.Printf("Server not found with ID %d: %v", serverID, err)
-		http.Error(w, "Server not found", http.StatusNotFound)
+		
+		// Audit log failed metrics retrieval attempt
+		s.auditLogger.LogAction(
+			s.getUserIDFromContext(r),
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"get_metrics",
+			"metrics",
+			serverID,
+			false,
+			"Server not found: "+err.Error(),
+		)
+		
+		s.errorHandler.HandleNotFound(w, r, err, "Server not found")
 		return
 	}
 	
@@ -42,6 +90,18 @@ func (s *Server) handleGetMetrics(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Retrieved metrics for server ID %d", serverID)
 	}
 	
+	// Audit log successful metrics retrieval
+	s.auditLogger.LogAction(
+		s.getUserIDFromContext(r),
+		s.getIPAddress(r),
+		r.Header.Get("User-Agent"),
+		"get_metrics",
+		"metrics",
+		serverID,
+		true,
+		"Metrics retrieved successfully",
+	)
+	
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(metrics)
@@ -53,7 +113,41 @@ func (s *Server) handleGetMetricsHistory(w http.ResponseWriter, r *http.Request)
 	serverID, err := strconv.Atoi(vars["id"])
 	if err != nil {
 		log.Printf("Invalid server ID provided: %v", err)
-		http.Error(w, "Invalid server ID", http.StatusBadRequest)
+		
+		// Audit log failed metrics history retrieval attempt
+		s.auditLogger.LogAction(
+			s.getUserIDFromContext(r),
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"get_metrics_history",
+			"metrics",
+			0,
+			false,
+			"Invalid server ID: "+err.Error(),
+		)
+		
+		s.errorHandler.HandleBadRequest(w, r, err, "Invalid server ID")
+		return
+	}
+	
+	// Check if user has access to this server to prevent enumeration
+	if err := s.checkServerAccess(serverID); err != nil {
+		log.Printf("Access denied to server ID %d: %v", serverID, err)
+		
+		// Audit log failed metrics history retrieval attempt
+		s.auditLogger.LogAction(
+			s.getUserIDFromContext(r),
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"get_metrics_history",
+			"metrics",
+			serverID,
+			false,
+			"Access denied: "+err.Error(),
+		)
+		
+		// Return a generic not found error to prevent enumeration
+		s.errorHandler.HandleNotFound(w, r, fmt.Errorf("server not found"), "Server not found")
 		return
 	}
 	
@@ -61,7 +155,20 @@ func (s *Server) handleGetMetricsHistory(w http.ResponseWriter, r *http.Request)
 	_, err = s.getServerByID(serverID)
 	if err != nil {
 		log.Printf("Server not found with ID %d: %v", serverID, err)
-		http.Error(w, "Server not found", http.StatusNotFound)
+		
+		// Audit log failed metrics history retrieval attempt
+		s.auditLogger.LogAction(
+			s.getUserIDFromContext(r),
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"get_metrics_history",
+			"metrics",
+			serverID,
+			false,
+			"Server not found: "+err.Error(),
+		)
+		
+		s.errorHandler.HandleNotFound(w, r, err, "Server not found")
 		return
 	}
 	
@@ -75,6 +182,18 @@ func (s *Server) handleGetMetricsHistory(w http.ResponseWriter, r *http.Request)
 		log.Printf("Retrieved %d metrics history records for server ID %d", len(metrics), serverID)
 	}
 	
+	// Audit log successful metrics history retrieval
+	s.auditLogger.LogAction(
+		s.getUserIDFromContext(r),
+		s.getIPAddress(r),
+		r.Header.Get("User-Agent"),
+		"get_metrics_history",
+		"metrics",
+		serverID,
+		true,
+		fmt.Sprintf("Retrieved %d metrics history records", len(metrics)),
+	)
+	
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(metrics)
@@ -86,6 +205,19 @@ func (s *Server) handlePostMetrics(w http.ResponseWriter, r *http.Request) {
 	
 	if err := json.NewDecoder(r.Body).Decode(&metrics); err != nil {
 		log.Printf("Error decoding metrics submission request: %v", err)
+		
+		// Audit log failed metrics submission attempt
+		s.auditLogger.LogAction(
+			0, // No user ID for agent requests
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"submit_metrics",
+			"metrics",
+			0,
+			false,
+			"Invalid request body: "+err.Error(),
+		)
+		
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -94,6 +226,19 @@ func (s *Server) handlePostMetrics(w http.ResponseWriter, r *http.Request) {
 	validator := validation.MetricsValidator{}
 	if err := validator.ValidateMetricsData(metrics.ServerID, metrics.CPUUsage, metrics.MemoryUsed, metrics.MemoryTotal, metrics.DiskUsed, metrics.DiskTotal); err != nil {
 		log.Printf("Metrics validation failed: %v", err)
+		
+		// Audit log failed metrics submission attempt
+		s.auditLogger.LogAction(
+			0, // No user ID for agent requests
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"submit_metrics",
+			"metrics",
+			metrics.ServerID,
+			false,
+			"Validation failed: "+err.Error(),
+		)
+		
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -102,6 +247,19 @@ func (s *Server) handlePostMetrics(w http.ResponseWriter, r *http.Request) {
 	_, err := s.getServerByID(metrics.ServerID)
 	if err != nil {
 		log.Printf("Server not found with ID %d: %v", metrics.ServerID, err)
+		
+		// Audit log failed metrics submission attempt
+		s.auditLogger.LogAction(
+			0, // No user ID for agent requests
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"submit_metrics",
+			"metrics",
+			metrics.ServerID,
+			false,
+			"Server not found: "+err.Error(),
+		)
+		
 		http.Error(w, "Server not found", http.StatusNotFound)
 		return
 	}
@@ -114,11 +272,37 @@ func (s *Server) handlePostMetrics(w http.ResponseWriter, r *http.Request) {
 	// Save metrics
 	if err := s.createMetrics(&metrics); err != nil {
 		log.Printf("Error saving metrics for server ID %d: %v", metrics.ServerID, err)
+		
+		// Audit log failed metrics submission attempt
+		s.auditLogger.LogAction(
+			0, // No user ID for agent requests
+			s.getIPAddress(r),
+			r.Header.Get("User-Agent"),
+			"submit_metrics",
+			"metrics",
+			metrics.ServerID,
+			false,
+			"Database error: "+err.Error(),
+		)
+		
 		http.Error(w, "Failed to save metrics", http.StatusInternalServerError)
 		return
 	}
 	
 	log.Printf("Metrics saved successfully for server ID %d", metrics.ServerID)
+	
+	// Audit log successful metrics submission
+	s.auditLogger.LogAction(
+		0, // No user ID for agent requests
+		s.getIPAddress(r),
+		r.Header.Get("User-Agent"),
+		"submit_metrics",
+		"metrics",
+		metrics.ServerID,
+		true,
+		"Metrics saved successfully",
+	)
+	
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(metrics)

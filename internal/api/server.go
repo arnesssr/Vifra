@@ -4,14 +4,21 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/username/vps-monitor/internal/audit"
 	"github.com/username/vps-monitor/internal/config"
+	"github.com/username/vps-monitor/internal/crypto"
 	"github.com/username/vps-monitor/internal/database"
+	"github.com/username/vps-monitor/internal/errors"
 	"github.com/username/vps-monitor/internal/models"
+	"github.com/username/vps-monitor/internal/ratelimit"
+	"github.com/username/vps-monitor/internal/security"
 )
 
 // Server represents the HTTP server
@@ -20,16 +27,45 @@ type Server struct {
 	db     *database.DB
 	router *mux.Router
 	httpServer *http.Server
+	rateLimiter *ratelimit.RateLimiter
+	auditLogger *audit.Logger
+	encryptor *crypto.Encryptor
+	errorHandler *errors.ErrorHandler
 }
 
 // NewServer creates a new Server instance
 func NewServer(cfg *config.Config, db *database.DB) *Server {
 	router := mux.NewRouter()
 	
+	// Initialize rate limiter (100 requests per minute per IP)
+	rateLimiter := ratelimit.NewRateLimiter(100, time.Minute)
+	
+	// Initialize audit logger
+	auditLogger := audit.NewLogger()
+	
+	// Initialize encryptor if encryption key is provided
+	var encryptor *crypto.Encryptor
+	if encryptionKey, err := cfg.GetEncryptionKey(); err == nil && encryptionKey != nil {
+		if enc, err := crypto.NewEncryptor(encryptionKey); err == nil {
+			encryptor = enc
+		} else {
+			log.Printf("Warning: Failed to initialize encryptor: %v", err)
+		}
+	} else if err != nil {
+		log.Printf("Warning: Failed to get encryption key: %v", err)
+	}
+	
+	// Initialize error handler (set debug to false in production)
+	errorHandler := errors.NewErrorHandler(false)
+	
 	server := &Server{
 		config: cfg,
 		db:     db,
 		router: router,
+		rateLimiter: rateLimiter,
+		auditLogger: auditLogger,
+		encryptor: encryptor,
+		errorHandler: errorHandler,
 	}
 	
 	server.setupRoutes()
@@ -39,6 +75,15 @@ func NewServer(cfg *config.Config, db *database.DB) *Server {
 
 // setupRoutes configures the HTTP routes
 func (s *Server) setupRoutes() {
+	// Apply security headers middleware to all routes
+	s.router.Use(security.SecurityHeadersMiddleware)
+	
+	// Apply CORS middleware to all routes
+	s.router.Use(security.CORSMiddleware)
+	
+	// Apply rate limiting to all routes
+	s.router.Use(s.rateLimiter.Middleware)
+	
 	// API v1 routes
 	api := s.router.PathPrefix("/api/v1").Subrouter()
 	
@@ -93,6 +138,65 @@ func (s *Server) Stop(ctx context.Context) error {
 	return s.httpServer.Shutdown(ctx)
 }
 
+// getUserIDFromContext extracts user ID from the request context
+func (s *Server) getUserIDFromContext(r *http.Request) int {
+	if user, ok := r.Context().Value("user").(jwt.MapClaims); ok {
+		if userID, ok := user["user_id"].(float64); ok {
+			return int(userID)
+		}
+	}
+	return 0
+}
+
+// getIPAddress extracts IP address from the request
+func (s *Server) getIPAddress(r *http.Request) string {
+	// Check X-Forwarded-For header first
+	forwarded := r.Header.Get("X-Forwarded-For")
+	if forwarded != "" {
+		// Take the first IP if there are multiple
+		ips := strings.Split(forwarded, ",")
+		return strings.TrimSpace(ips[0])
+	}
+
+	// Check X-Real-IP header
+	realIP := r.Header.Get("X-Real-IP")
+	if realIP != "" {
+		return realIP
+	}
+
+	// Fall back to RemoteAddr
+	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+	return ip
+}
+
+// decryptAgentKey decrypts an agent key if encryption is enabled
+func (s *Server) decryptAgentKey(encryptedKey string) (string, error) {
+	if s.encryptor == nil {
+		return encryptedKey, nil // Not encrypted
+	}
+	
+	decrypted, err := s.encryptor.Decrypt(encryptedKey)
+	if err != nil {
+		return "", err
+	}
+	
+	return string(decrypted), nil
+}
+
+// checkServerAccess verifies that the user has access to the specified server
+// For now, we'll implement a simple check that the server exists
+// In a more complex system, you might check user permissions or ownership
+func (s *Server) checkServerAccess(serverID int) error {
+	// Check if server exists
+	_, err := s.getServerByID(serverID)
+	if err != nil {
+		// Return a generic error to prevent enumeration
+		return fmt.Errorf("access denied")
+	}
+	
+	return nil
+}
+
 // JWTMiddleware validates JWT tokens
 func (s *Server) JWTMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -100,14 +204,14 @@ func (s *Server) JWTMiddleware(next http.Handler) http.Handler {
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
 			log.Printf("Authentication failed: Authorization header missing for %s %s", r.Method, r.URL.Path)
-			http.Error(w, "Authorization header required", http.StatusUnauthorized)
+			s.errorHandler.HandleUnauthorized(w, r, fmt.Errorf("missing authorization header"), "Authentication required")
 			return
 		}
 
 		// Check if header has Bearer prefix
 		if len(authHeader) < 7 || authHeader[:7] != "Bearer " {
 			log.Printf("Authentication failed: Invalid authorization header format for %s %s", r.Method, r.URL.Path)
-			http.Error(w, "Invalid authorization header format", http.StatusUnauthorized)
+			s.errorHandler.HandleUnauthorized(w, r, fmt.Errorf("invalid authorization header format"), "Authentication required")
 			return
 		}
 
@@ -125,13 +229,13 @@ func (s *Server) JWTMiddleware(next http.Handler) http.Handler {
 
 		if err != nil {
 			log.Printf("Authentication failed: Error parsing token for %s %s: %v", r.Method, r.URL.Path, err)
-			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			s.errorHandler.HandleUnauthorized(w, r, err, "Invalid token")
 			return
 		}
 
 		if !token.Valid {
 			log.Printf("Authentication failed: Invalid token for %s %s", r.Method, r.URL.Path)
-			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			s.errorHandler.HandleUnauthorized(w, r, fmt.Errorf("invalid token"), "Invalid token")
 			return
 		}
 
@@ -141,7 +245,7 @@ func (s *Server) JWTMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ctx))
 		} else {
 			log.Printf("Authentication failed: Invalid token claims for %s %s", r.Method, r.URL.Path)
-			http.Error(w, "Invalid token claims", http.StatusUnauthorized)
+			s.errorHandler.HandleUnauthorized(w, r, fmt.Errorf("invalid token claims"), "Invalid token")
 			return
 		}
 	})
