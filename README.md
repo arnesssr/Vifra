@@ -26,6 +26,7 @@ This project is currently in active development. The backend API is partially im
 
 - [Product Requirements Document](docs/PRD.md) - Detailed product requirements and specifications
 - [System Architecture](docs/architecture.md) - System design, deployment model, and communication flow
+- [Agent Documentation](docs/agent.md) - VPS monitoring agent installation and configuration
 
 ## Features
 
