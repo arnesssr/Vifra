@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/vifra-logo.png" alt="Vifra - VPS Infrastructure Monitor" width="300" height="300">
+  <img src="assets/vifra.png" alt="Vifra - VPS Infrastructure Monitor" width="300" height="300">
   
   # Vifra - VPS Infrastructure Monitor
   
