@@ -57,8 +57,8 @@ This project is currently in active development. The backend API is partially im
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/username/vps-monitor.git
-   cd vps-monitor
+   git clone https://github.com/arnesssr/Vifra.git
+   cd Vifra
    ```
 
 2. **Set up environment variables**:
