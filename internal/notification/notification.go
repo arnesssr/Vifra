@@ -186,7 +186,7 @@ func (n *Notifier) sendWebhook(channel NotificationChannel, alert Alert) error {
 	if err != nil {
 		return fmt.Errorf("failed to send webhook: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Check response
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -254,7 +254,7 @@ func (n *Notifier) sendSlack(channel NotificationChannel, alert Alert) error {
 	if err != nil {
 		return fmt.Errorf("failed to send Slack notification: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Check response
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {

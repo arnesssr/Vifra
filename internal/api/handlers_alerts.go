@@ -24,7 +24,7 @@ func (s *Server) handleGetAlerts(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Retrieved %d alerts", len(alerts))
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(alerts)
+	_ = json.NewEncoder(w).Encode(alerts)
 }
 
 // handleCreateAlert creates a new alert
@@ -153,7 +153,7 @@ func (s *Server) handleCreateAlert(w http.ResponseWriter, r *http.Request) {
 	
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(alert)
+	_ = json.NewEncoder(w).Encode(alert)
 }
 
 // handleGetAlert returns details for a specific alert
@@ -239,7 +239,7 @@ func (s *Server) handleGetAlert(w http.ResponseWriter, r *http.Request) {
 	
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(alert)
+	_ = json.NewEncoder(w).Encode(alert)
 }
 
 // handleUpdateAlert updates a specific alert
@@ -413,7 +413,7 @@ func (s *Server) handleUpdateAlert(w http.ResponseWriter, r *http.Request) {
 	
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(alert)
+	_ = json.NewEncoder(w).Encode(alert)
 }
 
 // handleDeleteAlert deletes a specific alert
@@ -517,5 +517,5 @@ func (s *Server) handleDeleteAlert(w http.ResponseWriter, r *http.Request) {
 	
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Alert deleted successfully"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"message": "Alert deleted successfully"})
 }

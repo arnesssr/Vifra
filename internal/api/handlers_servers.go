@@ -53,7 +53,7 @@ func (s *Server) handleGetServers(w http.ResponseWriter, r *http.Request) {
 	
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(servers)
+	_ = json.NewEncoder(w).Encode(servers)
 }
 
 // handleCreateServer creates a new server
@@ -157,7 +157,7 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 	
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(server)
+	_ = json.NewEncoder(w).Encode(server)
 }
 
 // handleGetServer returns details for a specific server
@@ -240,7 +240,7 @@ func (s *Server) handleGetServer(w http.ResponseWriter, r *http.Request) {
 	
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(server)
+	_ = json.NewEncoder(w).Encode(server)
 }
 
 // handleUpdateServer updates a specific server
@@ -392,7 +392,7 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 	
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(server)
+	_ = json.NewEncoder(w).Encode(server)
 }
 
 // handleDeleteServer deletes a specific server
@@ -495,7 +495,7 @@ func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 	
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Server deleted successfully"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"message": "Server deleted successfully"})
 }
 
 // generateAgentKey generates a unique agent key

@@ -64,7 +64,7 @@ func collectCPUUsage() (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	if scanner.Scan() {
@@ -86,7 +86,7 @@ func collectMemoryUsage() (uint64, uint64, error) {
 	if err != nil {
 		return 0, 0, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	var memTotal, memFree, memAvailable, memBuffers, memCached uint64
 
@@ -97,16 +97,16 @@ func collectMemoryUsage() (uint64, uint64, error) {
 		if len(fields) >= 3 {
 			switch fields[0] {
 			case "MemTotal:":
-				fmt.Sscanf(fields[1], "%d", &memTotal)
+				_, _ = fmt.Sscanf(fields[1], "%d", &memTotal)
 			case "MemFree:":
-				fmt.Sscanf(fields[1], "%d", &memFree)
+				_, _ = fmt.Sscanf(fields[1], "%d", &memFree)
 			case "MemAvailable:":
-				fmt.Sscanf(fields[1], "%d", &memAvailable)
+				_, _ = fmt.Sscanf(fields[1], "%d", &memAvailable)
 			case "Buffers:":
-				fmt.Sscanf(fields[1], "%d", &memBuffers)
+				_, _ = fmt.Sscanf(fields[1], "%d", &memBuffers)
 			case "Cached:":
 				if fields[1] != "0" { // Skip "Cached:" line that appears twice
-					fmt.Sscanf(fields[1], "%d", &memCached)
+					_, _ = fmt.Sscanf(fields[1], "%d", &memCached)
 				}
 			}
 		}
@@ -149,7 +149,7 @@ func collectLoadAvg() (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	if scanner.Scan() {

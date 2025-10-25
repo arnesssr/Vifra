@@ -104,7 +104,7 @@ func (s *Server) handleGetMetrics(w http.ResponseWriter, r *http.Request) {
 	
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(metrics)
+	_ = json.NewEncoder(w).Encode(metrics)
 }
 
 // handleGetMetricsHistory returns historical metrics for a server
@@ -196,7 +196,7 @@ func (s *Server) handleGetMetricsHistory(w http.ResponseWriter, r *http.Request)
 	
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(metrics)
+	_ = json.NewEncoder(w).Encode(metrics)
 }
 
 // handlePostMetrics handles metrics submission from agents
@@ -311,5 +311,5 @@ func (s *Server) handlePostMetrics(w http.ResponseWriter, r *http.Request) {
 	
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(metrics)
+	_ = json.NewEncoder(w).Encode(metrics)
 }

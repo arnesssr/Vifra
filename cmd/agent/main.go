@@ -47,7 +47,7 @@ func LoadConfig() *Config {
 
 	serverID := 0
 	if serverIDStr := os.Getenv("SERVER_ID"); serverIDStr != "" {
-		fmt.Sscanf(serverIDStr, "%d", &serverID)
+		_, _ = fmt.Sscanf(serverIDStr, "%d", &serverID)
 	}
 
 	return &Config{
@@ -111,7 +111,7 @@ func SubmitMetrics(config *Config, metrics *Metrics) error {
 	if err != nil {
 		return fmt.Errorf("failed to send metrics: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Check response
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {

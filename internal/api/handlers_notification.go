@@ -49,7 +49,7 @@ func (s *Server) handleGetNotificationChannels(w http.ResponseWriter, r *http.Re
 	
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(channels)
+	_ = json.NewEncoder(w).Encode(channels)
 }
 
 // handleCreateNotificationChannel creates a new notification channel
@@ -113,7 +113,7 @@ func (s *Server) handleCreateNotificationChannel(w http.ResponseWriter, r *http.
 	
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(channel)
+	_ = json.NewEncoder(w).Encode(channel)
 }
 
 // handleGetNotificationChannel returns details for a specific notification channel
@@ -175,7 +175,7 @@ func (s *Server) handleGetNotificationChannel(w http.ResponseWriter, r *http.Req
 	
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(channel)
+	_ = json.NewEncoder(w).Encode(channel)
 }
 
 // handleUpdateNotificationChannel updates a specific notification channel
@@ -284,7 +284,7 @@ func (s *Server) handleUpdateNotificationChannel(w http.ResponseWriter, r *http.
 	
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(channel)
+	_ = json.NewEncoder(w).Encode(channel)
 }
 
 // handleDeleteNotificationChannel deletes a specific notification channel
@@ -366,5 +366,5 @@ func (s *Server) handleDeleteNotificationChannel(w http.ResponseWriter, r *http.
 	
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Notification channel deleted successfully"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"message": "Notification channel deleted successfully"})
 }
